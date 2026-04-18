@@ -53,15 +53,27 @@ Set WiFi credentials in main.cpp:
 const char* ssid = "YOUR_WIFI";
 const char* password = "YOUR_PASSWORD";
 Configure TFT pins in User_Setup.h (ILI9341)
+Or it can be setup in the  platformio.ini file (recommended)
 Build and upload firmware
 Open Serial Monitor to get ESP32 IP address
 
+
+📌 Current pinout Config:
+  ---- SPI PINS ----
+     TFT_MOSI=23
+     TFT_MISO=19
+     TFT_SCLK=18
+
+ ---- CONTROL PINS ----
+     TFT_CS=15
+     TFT_DC=2
+     TFT_RST=4
 
 🐍 Python Setup
 
 Run gesture tracking client:
 
-python gesture_client.py
+python server.py
 What it does:
 Captures webcam frames
 Detects hand landmarks
