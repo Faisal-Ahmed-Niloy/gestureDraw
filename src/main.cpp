@@ -3,169 +3,203 @@
 #include <TFT_eSPI.h>
 #include <ArduinoJson.h>
 
-// ================= WIFI =================
-const char* ssid = "Faisal";
-const char* password = "Faisal-123";
 
-// ========================================
+const char* ssid     = "ssid";
+const char* password = "pass";
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 TFT_eSPI tft = TFT_eSPI();
 
-// -------- SCREEN CONFIG --------
-#define SCREEN_W 320
-#define SCREEN_H 240
-#define HEADER_HEIGHT 28
 
-#define DRAW_X 0
-#define DRAW_Y HEADER_HEIGHT
-#define DRAW_W SCREEN_W
-#define DRAW_H (SCREEN_H - HEADER_HEIGHT)
+#define SCREEN_W      320
+#define SCREEN_H      240
+#define HEADER_HEIGHT  28
+#define DRAW_X          0
+#define DRAW_Y    HEADER_HEIGHT
+#define DRAW_W    SCREEN_W
+#define DRAW_H    (SCREEN_H - HEADER_HEIGHT)
 
-// -------- COLORS --------
-#define HEADER_COLOR 0x001F   // Deep Blue
-#define BORDER_COLOR TFT_WHITE
+//must match Python COORD_W / COORD_H
+#define SRC_W  640
+#define SRC_H  480
 
-// -------- STATUS FLAGS --------
-bool wifiConnected = false;
+
+#define HEADER_COLOR  0x001F   // deep blue
+#define BORDER_COLOR  TFT_WHITE
+#define DRAW_COLOR    TFT_WHITE
+
+
+bool wifiConnected   = false;
 bool wsClientConnected = false;
 
-// ================= UI =================
-
-void drawUI() {
+void drawUI(const String& ip = "") {
   tft.fillScreen(TFT_BLACK);
 
-  // HEADER
+  // Header bar
   tft.fillRect(0, 0, SCREEN_W, HEADER_HEIGHT, HEADER_COLOR);
 
-  // TITLE (LEFT)
   tft.setTextFont(2);
   tft.setTextColor(TFT_WHITE, HEADER_COLOR);
   tft.setTextDatum(TL_DATUM);
-  tft.drawString("Gesture Drawing", 5, 6);
 
-  // DRAWING AREA BORDER
+  String title = "Gesture Draw";
+  if (ip.length() > 0) {
+    title += "|";
+    title += ip;
+  }
+  tft.drawString(title, 5, 6);
+
+
   tft.drawRect(DRAW_X, DRAW_Y, DRAW_W, DRAW_H, BORDER_COLOR);
 }
 
-// ================= STATUS =================
 
 void updateStatus() {
-  tft.setTextFont(2);
+  tft.setTextFont(1);
   tft.setTextColor(TFT_WHITE, HEADER_COLOR);
   tft.setTextDatum(TR_DATUM);
 
-  // Clear right header area properly
-  tft.fillRect(SCREEN_W/2, 0, SCREEN_W/2, HEADER_HEIGHT, HEADER_COLOR);
+  tft.fillRect(224, 0, SCREEN_W - 224, HEADER_HEIGHT, HEADER_COLOR);
 
-  String status = "";
-  status += "WiFi:";
-  status += (wifiConnected ? "OK " : "-- ");
+  String status = "WiFi:";
+  status += (wifiConnected    ? "OK " : "-- ");
   status += "WS:";
-  status += (wsClientConnected ? "OK" : "--");
+  status += (wsClientConnected ? "OK"  : "--");
 
-  // Draw text aligned to top-right corner
   tft.drawString(status, SCREEN_W - 5, 4);
 }
 
 
-// ================= DRAWING =================
+void drawFromJSON(const String& payload) {
+  DynamicJsonDocument doc(16384);
 
-void drawFromJSON(String payload) {
-  StaticJsonDocument<8192> doc;
-
-  if (deserializeJson(doc, payload)) {
-    Serial.println("JSON Error");
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    Serial.print("[JSON] Parse error: ");
+    Serial.println(err.c_str());
+    Serial.print("[JSON] Payload length: ");
+    Serial.println(payload.length());
     return;
   }
 
   const char* cmd = doc["cmd"];
-
-  // -------- CLEAR SCREEN --------
-  if (strcmp(cmd, "clear") == 0) {
-    tft.fillRect(DRAW_X + 1, DRAW_Y + 1, DRAW_W - 2, DRAW_H - 2, TFT_BLACK);
+  if (!cmd) {
+    Serial.println("[JSON] Missing 'cmd' field");
     return;
   }
 
-  // -------- DRAW LINES --------
+
+  if (strcmp(cmd, "clear") == 0) {
+    // Wipe only the drawing area, leave the header intact
+    tft.fillRect(DRAW_X + 1, DRAW_Y + 1, DRAW_W - 2, DRAW_H - 2, TFT_BLACK);
+    Serial.println("[CMD] clear");
+    return;
+  }
+
+
   if (strcmp(cmd, "draw") == 0) {
     JsonArray pts = doc["points"];
+    if (pts.isNull()) {
+      Serial.println("[JSON] 'points' array missing");
+      return;
+    }
 
-    int prev_x = -1, prev_y = -1;
+    int prev_sx = -1, prev_sy = -1;
+    int drawn   = 0;
 
     for (JsonArray p : pts) {
-      int x = p[0];
-      int y = p[1];
+      if (p.size() < 2) continue;
 
-      int sx = map(x, 0, 640, DRAW_X, DRAW_W);
-      int sy = map(y, 0, 480, DRAW_Y, DRAW_Y + DRAW_H);
+      int raw_x = p[0];
+      int raw_y = p[1];
 
-      if (sx < DRAW_X || sx > DRAW_W || sy < DRAW_Y || sy > DRAW_Y + DRAW_H)
-        continue;
+      // Map from Python coordinate space → display drawing area
+      int sx = map(raw_x, 0, SRC_W, DRAW_X + 1, DRAW_X + DRAW_W - 1);
+      int sy = map(raw_y, 0, SRC_H, DRAW_Y + 1, DRAW_Y + DRAW_H - 1);
 
-      if (prev_x != -1) {
-        tft.drawLine(prev_x, prev_y, sx, sy, TFT_WHITE);
+      // Clamp to drawing area (skip points outside)
+      if (sx < DRAW_X + 1 || sx > DRAW_X + DRAW_W - 2) continue;
+      if (sy < DRAW_Y + 1 || sy > DRAW_Y + DRAW_H - 2) continue;
+
+      if (prev_sx != -1) {
+        tft.drawLine(prev_sx, prev_sy, sx, sy, DRAW_COLOR);
+        drawn++;
       }
 
-      prev_x = sx;
-      prev_y = sy;
+      prev_sx = sx;
+      prev_sy = sy;
     }
+
+    Serial.print("[CMD] draw — segments: ");
+    Serial.println(drawn);
+    return;
   }
+
+  Serial.print("[JSON] Unknown cmd: ");
+  Serial.println(cmd);
 }
 
-// ================= WEBSOCKET =================
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-
+void webSocketEvent(uint8_t num, WStype_t type,
+                    uint8_t* payload, size_t length) {
   switch (type) {
 
     case WStype_CONNECTED:
       wsClientConnected = true;
       updateStatus();
+      Serial.print("[WS] Client connected, num=");
+      Serial.println(num);
       break;
 
     case WStype_DISCONNECTED:
       wsClientConnected = false;
       updateStatus();
+      Serial.print("[WS] Client disconnected, num=");
+      Serial.println(num);
       break;
 
     case WStype_TEXT:
       drawFromJSON(String((char*)payload));
       break;
+
+    case WStype_ERROR:
+      Serial.print("[WS] Error, num=");
+      Serial.println(num);
+      break;
+
+    default:
+      break;
   }
 }
 
-// ================= SETUP =================
 
 void setup() {
   Serial.begin(115200);
+  delay(200);
 
   tft.init();
-  tft.setRotation(1);
+  tft.setRotation(1);   
+  drawUI();             
 
-  drawUI();
-
-  // -------- WIFI --------
+  Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(400);
     Serial.print(".");
   }
-
   wifiConnected = true;
-
-  Serial.println("\nWiFi Connected!");
+  Serial.println("\n[WiFi] Connected!");
+  Serial.print("[WiFi] IP: ");
   Serial.println(WiFi.localIP());
 
+  drawUI(WiFi.localIP().toString());
   updateStatus();
 
-  // -------- WEBSOCKET --------
+  
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+  Serial.println("[WS] Server started on port 81");
 }
-
-// ================= LOOP =================
 
 void loop() {
   webSocket.loop();

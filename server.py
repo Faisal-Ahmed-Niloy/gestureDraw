@@ -4,15 +4,13 @@ import websocket
 import json
 import time
 
-# ================= CONFIG =================
-ESP32_IP = "192.168.1.100"   # 🔴 CHANGE THIS
+ESP32_IP = "192.168.1.100"
 WS_URL = f"ws://{ESP32_IP}:81/"
 
 MAX_POINTS = 500
 SMOOTHING = 0.7
 GESTURE_HOLD_TIME = 0.5  # seconds
 
-# ==========================================
 
 ws = websocket.WebSocket()
 ws.connect(WS_URL)
@@ -36,8 +34,6 @@ stop_time = 0
 erase_time = 0
 
 
-# ----------- GESTURE FUNCTIONS -----------
-
 def is_start_gesture(hand):
     # Thumb up
     return hand.landmark[4].y < hand.landmark[3].y
@@ -49,9 +45,6 @@ def is_stop_gesture(hand):
 def is_erase_gesture(hand):
     # Middle finger up
     return hand.landmark[12].y < hand.landmark[10].y
-
-
-# ========================================
 
 while True:
     ret, frame = cap.read()
