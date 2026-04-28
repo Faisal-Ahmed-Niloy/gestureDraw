@@ -31,11 +31,11 @@ import queue
 ESP32_IP          = "xx.xxx.xxx.xx"   # change this ESP32's IP
 WS_PORT           = 81
 
-COORD_W           = 640     # coordinate space the firmware maps from
+COORD_W           = 640     
 COORD_H           = 480
 
 CAMERA_INDEX      = 0
-MIN_MOVE_PX       = 5       # dead-zone to suppress jitter
+MIN_MOVE_PX       = 5       
 
 # ── webSoc tuning ───
 RECONNECT_DELAY_S  = 2.0
